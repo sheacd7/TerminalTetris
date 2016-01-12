@@ -13,7 +13,7 @@
 # - get_sprite: get number of rotation states
 # - double-up for hard drop w/ lock
 # - save/load state?
-# - ARE? DAS? more responsive/less latency controls
+# - ARE/IRS/IHS? DAS? more responsive/less latency controls
 # - portable method of creating hard-coded terminal codes
 # - modular options for 
 #     control remapping
@@ -21,6 +21,12 @@
 #     rotation states
 #     delay times
 #     wall kick behavior
+
+# sb  stack
+# db  well
+# cb  connect
+# pb  preview
+#     screen
 
 # global variables (game state)
 # - sb  static  buffer     state of well including static tetriminoes
