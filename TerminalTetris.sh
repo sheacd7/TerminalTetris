@@ -2,18 +2,22 @@
 # META =========================================================================
 # Title: TerminalTetris.sh
 # Usage: TerminalTetris.sh
-# Description: "The New Tetris" clone for terminals.
+# Description: Definitive, modular Tetris clone for terminal emulators.
 # Author: Colin Shea
 # Created: 2015-08-09
-# TODO:
 
-# - timer-based drop
-# - rotation logic (SRS, wall kicks)
+# BUGFIX:
+#   intermittent screen tearing when holding down a control during draw
+
+# TODO:
+# - wall kick logic 
 # - simplify bounds checking and square checking
-# - get_sprite: get number of rotation states
-# - double-up for hard drop w/ lock
+# - timer-based drop
+# - more responsive controls/ less latency
+
+# - hard v firm lock
 # - save/load state?
-# - ARE/IRS/IHS? DAS? more responsive/less latency controls
+# - ARE/IRS/IHS? DAS?
 # - portable method of creating hard-coded terminal codes
 # - modular options for 
 #     control remapping
@@ -21,30 +25,6 @@
 #     rotation states
 #     delay times
 #     wall kick behavior
-
-# sb  stack
-# db  well
-# cb  connect
-# pb  preview
-#     screen
-
-# global variables (game state)
-# - sb  static  buffer     state of well including static tetriminoes
-# - db  dynamic buffer     state of well and current tetrimino (sprite)
-# - cb  connect buffer     state of connected elements in each tetrimino
-# - pb  preview buffer     state of next 3 tetriminoes, score, hold
-# - screen_buffer          terminal codes to display dynamic buffer
-# - sprite                 current tetrimino as array of chars
-#     tidx                 tetrimino id as index in tetriminoes array
-#     ypos, xpos           coordinates of top left corner within buffer 
-#     rpos                 rotation state
-# - offsets                controls are offsets for next position/rotation
-#     yoff, xoff           translation
-#     roff                 rotation
-# - bag                    string of next bsize tetriminoes
-#     bidx                 bag index of current position in bag
-#     bsize                number of tetriminoes in bag
-# - lock_delay
 
 # prepare temp dir, temp files
 #source /cygdrive/c/users/sheacd/locals/TerminalTetris_local_env.sh 
@@ -67,8 +47,11 @@ while [[ $# > 0 ]]; do
   shift
 done
 
-# load tetrimino data for The New Tetris style rotation
-source /cygdrive/c/users/sheacd/GitHub/TerminalTetris/Tetriminoes_TNT.sh
+# load tetrimino data
+source /cygdrive/c/users/sheacd/GitHub/TerminalTetris/Tetriminoes.sh
+# load rotation system data
+source /cygdrive/c/users/sheacd/GitHub/TerminalTetris/RotationSystems.sh
+
 
 # generate random sequence of ints to fill bag [0:2*bsize-1]
 function init_bag {
@@ -94,7 +77,6 @@ function get_next_from_bag {
 
 # initialize static buffer for well
 function init_static_buffer {
-#  for (( i=0; i<22; i++ )); do
   for i in {0..21}; do
     sb[$i]="          "
   done
@@ -111,8 +93,6 @@ function init_connect_buffer {
 
 function init_preview_buffer {
   pb[0]="Next      "
-  # 1-4, 6-9, 11-14
-#  for (( i=1; i<22; i++)); do
   for i in {1..21}; do 
     pb[$i]="          "
   done
@@ -126,10 +106,10 @@ function draw_sprite {
   # draw sprite to dynamic buffer
   for j in "${!sprite[@]}"; do 
     # calculate row offset for buffer
-    row=$(($y+$j))
+    row=$(($y+$j+$ry))
     for ((i=0; i<${#sprite[$j]}; i++)); do 
       # calculate column offset for buffer
-      col=$(($x+$i))
+      col=$(($x+$i+$rx))
       # if sprite value not ' ', draw to buffer
       s="${sprite[$j]:$i:1}"
       [[ "$s" != " " ]] && db[$row]="${db[$row]:0:$col}$s${db[$row]:$(($col+1))}"
@@ -145,10 +125,10 @@ function draw_sprite_c {
   # draw sprite to dynamic buffer
   for j in "${!c_sprite[@]}"; do 
     # calculate row offset for buffer
-    row=$(($y+$j))
+    row=$(($y+$j+$ry))
     for ((i=0; i<${#c_sprite[$j]}; i++)); do 
       # calculate column offset for buffer
-      col=$(($x+$i))
+      col=$(($x+$i+$rx))
       # if sprite value not ' ', draw to buffer
       s="${c_sprite[$j]:$i:1}"
       [[ "$s" != " " ]] && cb[$row]="${cb[$row]:0:$col}$s${cb[$row]:$(($col+1))}"
@@ -164,63 +144,63 @@ function draw_ghost {
   # draw sprite to dynamic buffer
   for j in "${!sprite[@]}"; do 
     # calculate row offset for buffer
-    row=$(($y+$j))
+    row=$(($y+$j+$ry))
     for ((i=0; i<${#sprite[$j]}; i++)); do 
       # calculate column offset for buffer
-      col=$(($x+$i+1))
+      col=$(($x+$i+$rx+1))
       # if sprite value not ' ', draw to buffer; use ${,,} to lowercase
       s="${sprite[$j]:$i:1}"
-      b="${screen_buffer[$row]:$col:1}"
+      b="${screen[$row]:$col:1}"
       if [[ "$s" != " " && "$b" == " " ]]; then
-        screen_buffer[$row]="${screen_buffer[$row]:0:$col}${s,,}${screen_buffer[$row]:$(($col+1))}"
+        screen[$row]="${screen[$row]:0:$col}${s,,}${screen[$row]:$(($col+1))}"
       fi
     done
   done
 }
 
 # apply terminal codes to screen buffer with parameter substitution
-function compose_screen_buffer {
+function compose_screen {
   update_preview_buffer
   for i in "${!db[@]}"; do
-#    screen_buffer[$i]="${db[$i]}${pb[$i]}"
-    screen_buffer[$i]="X${db[$i]}X${cb[$i]}X"
+#    screen[$i]="${db[$i]}${pb[$i]}"
+    screen[$i]="X${db[$i]}X${cb[$i]}X"
   done
   draw_ghost
-  screen_buffer[22]="XXXXXXXXXXXXXXXXXXXXXXX"
+  screen[22]="XXXXXXXXXXXXXXXXXXXXXXX"
   # normal
-  screen_buffer=( "${screen_buffer[@]// /\\033[30m\\u2588\\033[0m}" ) # black
-  screen_buffer=( "${screen_buffer[@]//X/\\033[37m\\u2588\\033[0m}" ) # gray
-  screen_buffer=( "${screen_buffer[@]//Z/\\033[91m\\u2588\\033[0m}" ) # red
-  screen_buffer=( "${screen_buffer[@]//S/\\033[92m\\u2588\\033[0m}" ) # green
-  screen_buffer=( "${screen_buffer[@]//T/\\033[93m\\u2588\\033[0m}" ) # yellow
-  screen_buffer=( "${screen_buffer[@]//J/\\033[94m\\u2588\\033[0m}" ) # blue
-  screen_buffer=( "${screen_buffer[@]//L/\\033[95m\\u2588\\033[0m}" ) # purple
-  screen_buffer=( "${screen_buffer[@]//I/\\033[96m\\u2588\\033[0m}" ) # cyan 
-  screen_buffer=( "${screen_buffer[@]//O/\\033[97m\\u2588\\033[0m}" ) # white
+  screen=( "${screen[@]// /\\033[30m\\u2588\\033[0m}" ) # black
+  screen=( "${screen[@]//X/\\033[37m\\u2588\\033[0m}" ) # gray
+  screen=( "${screen[@]//Z/\\033[91m\\u2588\\033[0m}" ) # red
+  screen=( "${screen[@]//S/\\033[92m\\u2588\\033[0m}" ) # green
+  screen=( "${screen[@]//T/\\033[93m\\u2588\\033[0m}" ) # yellow
+  screen=( "${screen[@]//J/\\033[94m\\u2588\\033[0m}" ) # blue
+  screen=( "${screen[@]//L/\\033[95m\\u2588\\033[0m}" ) # purple
+  screen=( "${screen[@]//I/\\033[96m\\u2588\\033[0m}" ) # cyan 
+  screen=( "${screen[@]//O/\\033[97m\\u2588\\033[0m}" ) # white
   # ghost
-  screen_buffer=( "${screen_buffer[@]//z/\\033[2;91m\\u2588\\033[0m}" ) # red
-  screen_buffer=( "${screen_buffer[@]//s/\\033[2;92m\\u2588\\033[0m}" ) # green
-  screen_buffer=( "${screen_buffer[@]//t/\\033[2;93m\\u2588\\033[0m}" ) # yellow
-  screen_buffer=( "${screen_buffer[@]//j/\\033[2;94m\\u2588\\033[0m}" ) # blue
-  screen_buffer=( "${screen_buffer[@]//l/\\033[2;95m\\u2588\\033[0m}" ) # purple
-  screen_buffer=( "${screen_buffer[@]//i/\\033[2;96m\\u2588\\033[0m}" ) # cyan 
-  screen_buffer=( "${screen_buffer[@]//o/\\033[2;97m\\u2588\\033[0m}" ) # white
+  screen=( "${screen[@]//z/\\033[2;91m\\u2588\\033[0m}" ) # red
+  screen=( "${screen[@]//s/\\033[2;92m\\u2588\\033[0m}" ) # green
+  screen=( "${screen[@]//t/\\033[2;93m\\u2588\\033[0m}" ) # yellow
+  screen=( "${screen[@]//j/\\033[2;94m\\u2588\\033[0m}" ) # blue
+  screen=( "${screen[@]//l/\\033[2;95m\\u2588\\033[0m}" ) # purple
+  screen=( "${screen[@]//i/\\033[2;96m\\u2588\\033[0m}" ) # cyan 
+  screen=( "${screen[@]//o/\\033[2;97m\\u2588\\033[0m}" ) # white
   # squares
-  screen_buffer=( "${screen_buffer[@]//U/\\033[38;2;180;180;0m\\u2588\\033[0m}" ) # gold
-  screen_buffer=( "${screen_buffer[@]//G/\\033[38;2;180;180;180m\\u2588\\033[0m}" ) # silver 
+  screen=( "${screen[@]//U/\\033[38;2;180;180;0m\\u2588\\033[0m}" ) # gold
+  screen=( "${screen[@]//G/\\033[38;2;180;180;180m\\u2588\\033[0m}" ) # silver 
   # clear lines
-  screen_buffer=( "${screen_buffer[@]//V/\\033[7m}" ) # invert
-  screen_buffer=( "${screen_buffer[@]//R/\\033[0m}" ) # reset
+  screen=( "${screen[@]//V/\\033[7m}" ) # invert
+  screen=( "${screen[@]//R/\\033[0m}" ) # reset
 }
 
 # display screen
 function display_screen {
-  # screen_buffer = dynamic buffer with terminal codes for styling
-  compose_screen_buffer
+  # screen = dynamic buffer with terminal codes for styling
+  compose_screen
   # set coordinates to top-left of terminal window
   printf '%b' "\033[0;0H"  #  tput cup 0 0
   # print contents of screen buffer array
-  printf '%b\n' "${screen_buffer[@]}"
+  printf '%b\n' "${screen[@]}"
   # print contents of debug buffer array
   if [[ "$debug" ]]; then
     update_debug_buffer
@@ -273,11 +253,18 @@ function check_bounds {
   else
     cb_sprite=( "${sprite[@]}" )
   fi
+  # keep rotation index in range [-3:3]
+  : $((r%=4))
+  # set x and y offsets from rotation system for tetrimino and rotation state
+  cb_rot_offsets="$(get_rotation_offsets $tidx $r)"
+  cb_rx="${cb_rot_offsets:0:1}"
+  cb_ry="${cb_rot_offsets:1:1}"
+
   # check for overlap of sprite and static buffer
   for j in "${!cb_sprite[@]}"; do 
-    row=$(($y+$j))
+    row=$(($y+$j+$cb_ry))
     for ((i=0; i<${#cb_sprite[$j]}; i++)); do 
-      col=$(($x+$i))
+      col=$(($x+$i+$cb_rx))
       # if sprite is not blank
       if [[ "${cb_sprite[$j]:$i:1}" != " " ]]; then
         # if row/col exceed bounds or static buffer not blank
@@ -289,6 +276,15 @@ function check_bounds {
     done    
   done
   return 0
+}
+
+# get x,y offsets for tetrimino in rotation state for current rotation system
+function get_rotation_offsets {
+  local ti=$1
+  local ri=$2
+  ref=${rot_sys}[${ti}]
+  printf '%s' "${!ref:$(($ri*2)):2}"
+  return
 }
 
 # find bottom ypos (row) if sprite were slammed down
@@ -317,13 +313,11 @@ function get_sprite {
   ref=${tetrimino}[@]
   # keep rotation index in range [-3:3]
   : $((rot%=4))
-  # calculate array index offset for this rotation state
-  tsize=0
-  for val in "${!ref}"; do 
-    : $((tsize++))
-  done
-  len=$(( $tsize / 4 ))
-  start=$(( $rot * $len ))
+
+  # get sprite height (rows) and start index
+  len=${length[$sidx]: $rot:1}
+  start=${start[$sidx]: $rot:1}
+
   # prepare sprite array
   temp_sprite=()
   for ((i=0; i<$len; i++)); do 
@@ -558,13 +552,21 @@ init_connect_buffer
 declare -a pb
 init_preview_buffer
 
-# construct sprite
-declare -a sprite
-get_next_from_bag
-tidx=$?
+# set rotation system
+rsidx=7 # TNT
+rot_sys="${rotation_system[${rsidx}]}"
+
+# initialize tetrimino
 ypos=10
 xpos=4
+get_next_from_bag
+tidx=$?
 rpos=0
+# set x and y offsets from rotation system for tetrimino and rotation state
+rot_offsets="$(get_rotation_offsets $tidx $rpos)"
+rx="${rot_offsets:0:1}"
+ry="${rot_offsets:1:1}"
+
 mapfile -t sprite <<< "$(get_sprite $tidx $rpos 't')"
 find_bottom
 ghost_ypos=$?
@@ -572,7 +574,7 @@ ghost_ypos=$?
 draw_sprite $ypos $xpos
 
 # initialize screen from dynamic buffer and display
-declare -a screen_buffer
+declare -a screen
 clear
 display_screen
 
@@ -605,7 +607,13 @@ while [[ true ]]; do
       db=( "${sb[@]}" )
       # update sprite position
       ((ypos+=$yoff)); ((xpos+=$xoff)); ((rpos+=$roff))
+      : $((rpos%=4))
       mapfile -t sprite <<< "$(get_sprite $tidx $rpos 't')"
+      if [[ $roff -ne 0 ]]; then
+        rot_offsets="$(get_rotation_offsets $tidx $rpos)"
+        rx="${rot_offsets:0:1}"
+        ry="${rot_offsets:1:1}"
+      fi
       draw_sprite ${ypos} ${xpos}
       # update ghost position
       find_bottom
@@ -636,6 +644,9 @@ while [[ true ]]; do
     tidx=$?
     ypos=0; xpos=5; rpos=0
     mapfile -t sprite <<< "$(get_sprite $tidx $rpos 't')"
+    rot_offsets="$(get_rotation_offsets $tidx $rpos)"
+    rx="${rot_offsets:0:1}"
+    ry="${rot_offsets:1:1}"
     # check for cleared lines
     clear_lines
     # update ghost position
@@ -647,70 +658,3 @@ done
 # return cursor to just below well
 tput cup 30 0
 
-# notes
-# - use literal (printf '%b') \033[4xm and \033[3xm for tput setab/setaf resp.
-# - can use background \u0020 or foreground \u2588 for neat boxes
-# - printing each line in a loop with tput is way too slow
-# - should use a screen buffer for current frame and printf to display it
-# - should use an array to store the well and static tetriminoes
-# - use a sprite for the falling tetrimino (tput cup still slow here)
-# - redraw the sprite and well on each game loop iteration
-# - clearing lines is just a matter of swapping array indices
-# - auto-drop timer can check whether it expired before processing move
-# - preview pane could use some padding
-#     use printf -v var instead of capturing stdout
-#       faster?
-#     pad left and right to remove ghost of previous sprites
-# - simplify sprite printing/bounds checking
-# - get_sprite should assign directly to var (printf -v var with indirection?)
-
-# screen buffer
-# - needs to be numerical array b/c associative is unordered
-# - should use fixed-width codes instead of literal terminal/unicode so we can
-#   use indices for positioning
-#     separate buffers for 
-#       positioning - dynamic_buffer
-#       styling     - screen_buffer
-
-# tetrimino connection buffer
-#  5 bits   -0,1-F
-#  1 bit   1  up    connection  
-#  1 bit   2  left  connection  
-#  1 bit   4  right connection  
-#  1 bit   8  down  connection  
-#  1 bit   0  part of a tetrimino that was broken by a line clear
-
-# simplify bounds checking and square checking
-# - eliminate need to check empty rows/cols
-# - save rotated tetrimino states in tight bounding boxes
-# - provide x,y offset for each rotation state
-# - can set rotation style with offsets instead of array data
-
-# trying to access db[$row]:$col without bounds check will break this function
-# much easier to simply check if sprite[$j]:$i is blank and assign value 
-#  for j in "${!sprite[@]}"; do 
-#    # calculate row offset for buffer
-#    row=$(($y+$j))
-#    [[ $row -gt 21 ]] && return 
-#    temp=""
-#    for ((i=0; i<${len}; i++)); do 
-#      # calculate column offset for buffer
-#      col=$(($x+$i))
-#      # build string char by char using buffer if not ' ', otherwise sprite
-#      d="${db[$row]:$col:1}"
-#      s="${sprite[$j]:$i:1}"
-#      case "$d" in 
-#        ' ') temp="${temp}${s}" ;;
-#        *)   temp="${temp}${d}" ;;
-#      esac        
-#    done
-#    # build full line of buffer, replacing with temp at appropriate row, col
-#    col=$(($x+$len))
-#    db[$row]="${db[$row]:0:$x}${temp}${db[$row]:$col}"
-    # replace line of dynamic buffer with sprite using parameter substitution
-#    temp="${dynamic_buffer[$row]}"
-#    dynamic_buffer[$row]="${temp:0:$x}""${sprite[$idx]}""${temp:$col}"
-#  done
-
-
-# [[ $val -eq 0 ]] # true when val="C" or "A"?
