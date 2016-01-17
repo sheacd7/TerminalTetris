@@ -8,23 +8,33 @@
 
 # BUGFIX:
 #   intermittent screen tearing when holding down a control during draw
+#   square check not picking up squares
+#     4E28
+#     8189
+#     94B9
+#     5211
 
 # TODO:
 # - wall kick logic 
+#     check_bounds - additional x,y offsets for each wall kick test
+#                  - success: overwrite xoff, yoff with x,y offsets that worked
+#                  -          return 0
+#                  - failure: return 1
 # - simplify bounds checking and square checking
 # - timer-based drop
 # - more responsive controls/ less latency
 
 # - hard v firm lock
-# - save/load state?
+# - save/load state
 # - ARE/IRS/IHS? DAS?
 # - portable method of creating hard-coded terminal codes
 # - modular options for 
 #     control remapping
 #     colors
-#     rotation states
+#     rotation and wall kick system
 #     delay times
-#     wall kick behavior
+#     square mode
+#     score mode (marathon, sprint, ultra, etc)
 
 # prepare temp dir, temp files
 #source /cygdrive/c/users/sheacd/locals/TerminalTetris_local_env.sh 
@@ -51,7 +61,8 @@ done
 source /cygdrive/c/users/sheacd/GitHub/TerminalTetris/Tetriminoes.sh
 # load rotation system data
 source /cygdrive/c/users/sheacd/GitHub/TerminalTetris/RotationSystems.sh
-
+# load wall kick system data
+#source /cygdrive/c/users/sheacd/GitHub/TerminalTetris/WallKickSystems.sh
 
 # generate random sequence of ints to fill bag [0:2*bsize-1]
 function init_bag {
@@ -170,13 +181,13 @@ function compose_screen {
   # normal
   screen=( "${screen[@]// /\\033[30m\\u2588\\033[0m}" ) # black
   screen=( "${screen[@]//X/\\033[37m\\u2588\\033[0m}" ) # gray
-  screen=( "${screen[@]//Z/\\033[91m\\u2588\\033[0m}" ) # red
-  screen=( "${screen[@]//S/\\033[92m\\u2588\\033[0m}" ) # green
-  screen=( "${screen[@]//T/\\033[93m\\u2588\\033[0m}" ) # yellow
-  screen=( "${screen[@]//J/\\033[94m\\u2588\\033[0m}" ) # blue
-  screen=( "${screen[@]//L/\\033[95m\\u2588\\033[0m}" ) # purple
-  screen=( "${screen[@]//I/\\033[96m\\u2588\\033[0m}" ) # cyan 
-  screen=( "${screen[@]//O/\\033[97m\\u2588\\033[0m}" ) # white
+  screen=( "${screen[@]//Z/\\033[91m\\u2588}") #\\033[0m}" ) # red
+  screen=( "${screen[@]//S/\\033[92m\\u2588}") #\\033[0m}" ) # green
+  screen=( "${screen[@]//T/\\033[93m\\u2588}") #\\033[0m}" ) # yellow
+  screen=( "${screen[@]//J/\\033[94m\\u2588}") #\\033[0m}" ) # blue
+  screen=( "${screen[@]//L/\\033[95m\\u2588}") #\\033[0m}" ) # purple
+  screen=( "${screen[@]//I/\\033[96m\\u2588}") #\\033[0m}" ) # cyan 
+  screen=( "${screen[@]//O/\\033[97m\\u2588}") #\\033[0m}" ) # white
   # ghost
   screen=( "${screen[@]//z/\\033[2;91m\\u2588\\033[0m}" ) # red
   screen=( "${screen[@]//s/\\033[2;92m\\u2588\\033[0m}" ) # green
@@ -256,9 +267,17 @@ function check_bounds {
   # keep rotation index in range [-3:3]
   : $((r%=4))
   # set x and y offsets from rotation system for tetrimino and rotation state
-  cb_rot_offsets="$(get_rotation_offsets $tidx $r)"
+#  cb_rot_offsets="$(get_rotation_offsets $tidx $r)"
+  cb_rot_offsets=${!rot_ref:$(($r*2)):2}
   cb_rx="${cb_rot_offsets:0:1}"
   cb_ry="${cb_rot_offsets:1:1}"
+
+  # loop through wall kick offsets if r!=rpos
+# wk_sys="${wallkick_system[${wsidx}]}"
+  cb_wk_offsets=${wk_sys}[$rpos$r]
+  # for wki 0:${#wk_offsets}/2
+  # wkx=${wk_offsets:wki:1} - 2
+  # wky=${wk_offsets:wki+1:1} - 2
 
   # check for overlap of sprite and static buffer
   for j in "${!cb_sprite[@]}"; do 
@@ -275,22 +294,27 @@ function check_bounds {
       fi
     done    
   done
+  # no collision - move is valid
   return 0
 }
 
 # get x,y offsets for tetrimino in rotation state for current rotation system
-function get_rotation_offsets {
-  local ti=$1
-  local ri=$2
-  ref=${rot_sys}[${ti}]
-  printf '%s' "${!ref:$(($ri*2)):2}"
-  return
-}
+#function get_rotation_offsets {
+#  local ti=$1
+#  local ri=$2
+#  ref=${rot_sys}[${ti}]
+#  printf '%s' "${!ref:$(($ri*2)):2}"
+#  return
+#}
 
 # find bottom ypos (row) if sprite were slammed down
 function find_bottom {
   ybottom=$ypos
-  valid=0 
+  valid=0
+  # skip rows that are clear 
+  while [[ "${sb[$(($ybottom + 4))]}" == "          " ]]; do
+    : $((ybottom++))
+  done
   while [[ "${valid}" == "0" ]]; do
     : $((ybottom++))
     check_bounds $ybottom $xpos $rpos
@@ -556,6 +580,10 @@ init_preview_buffer
 rsidx=7 # TNT
 rot_sys="${rotation_system[${rsidx}]}"
 
+# set wall kick system
+wsidx=3 # SRS1
+wk_sys="${wallkick_system[${wsidx}]}"
+
 # initialize tetrimino
 ypos=10
 xpos=4
@@ -563,7 +591,9 @@ get_next_from_bag
 tidx=$?
 rpos=0
 # set x and y offsets from rotation system for tetrimino and rotation state
-rot_offsets="$(get_rotation_offsets $tidx $rpos)"
+#rot_offsets="$(get_rotation_offsets $tidx $rpos)"
+rot_ref=${rot_sys}[${tidx}]
+rot_offsets=${!rot_ref:$(($rpos*2)):2}
 rx="${rot_offsets:0:1}"
 ry="${rot_offsets:1:1}"
 
@@ -582,7 +612,7 @@ lock_delay_start=$(date +%s%N)
 # event loop -------------------------------------------------------------------
 while [[ true ]]; do
   yoff=0; xoff=0; roff=0
-  read -s -t 1 -n 1 move 
+  read -s -t 0.1 -n 1 move 
   case ${move} in
     'a') xoff=-1 ;; # left 
     'd') xoff=1  ;; # right
@@ -591,7 +621,6 @@ while [[ true ]]; do
     's') yoff=1  ;; # down
     'e') roff=1  ;; # rotate counter-clockwisee
     'r') roff=-1 ;; # rotate clockwise
-#    'c') (( colr+=1 )) ;;
     'f') (( bidx+=1 )); get_next_from_bag; tidx=$? ;;
     'q') break ;;   # quit
     '') ;;
@@ -610,7 +639,8 @@ while [[ true ]]; do
       : $((rpos%=4))
       mapfile -t sprite <<< "$(get_sprite $tidx $rpos 't')"
       if [[ $roff -ne 0 ]]; then
-        rot_offsets="$(get_rotation_offsets $tidx $rpos)"
+        #rot_offsets="$(get_rotation_offsets $tidx $rpos)"
+        rot_offsets=${!rot_ref:$(($rpos*2)):2}
         rx="${rot_offsets:0:1}"
         ry="${rot_offsets:1:1}"
       fi
@@ -625,12 +655,13 @@ while [[ true ]]; do
   # display current state
   display_screen
   # check if hit bottom
-  check_bounds $(($ypos + 1)) $xpos $rpos
-  valid_move=$?
+  #check_bounds $(($ypos + 1)) $xpos $rpos
+  #valid_move=$?
   lock_delay_elapsed=$(( $(date +%s%N) - $lock_delay_start ))
   # if valid to drop and exceeded timer, then drop, else
   # if hit bottom and lock delay expired
-  if [[ "${valid_move}" != "0" && $lock_delay_elapsed -gt $lock_delay ]]; then
+  if [[ $ghost_ypos -eq $ypos && $lock_delay_elapsed -gt $lock_delay ]]; then
+#  if [[ "${valid_move}" != "0" && $lock_delay_elapsed -gt $lock_delay ]]; then
     # draw sprite to connect buffer
     mapfile -t c_sprite <<< "$(get_sprite $tidx $rpos 'c')"
     draw_sprite_c ${ypos} ${xpos}
@@ -642,9 +673,11 @@ while [[ true ]]; do
     : $((bidx++))
     get_next_from_bag
     tidx=$?
+    rot_ref=${rot_sys}[${tidx}]
     ypos=0; xpos=5; rpos=0
     mapfile -t sprite <<< "$(get_sprite $tidx $rpos 't')"
-    rot_offsets="$(get_rotation_offsets $tidx $rpos)"
+    #rot_offsets="$(get_rotation_offsets $tidx $rpos)"
+    rot_offsets=${!rot_ref:$(($rpos*2)):2}
     rx="${rot_offsets:0:1}"
     ry="${rot_offsets:1:1}"
     # check for cleared lines

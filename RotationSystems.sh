@@ -31,14 +31,14 @@ start[6]=0246  # O
 
 # basic rotation 
 declare -a rotation_system
-rotation_system[0]="ORS"
-rotation_system[1]="NRSR"
-rotation_system[2]="NRSL"
-rotation_system[3]="SEGA"
-rotation_system[4]="ARS"
-rotation_system[5]="DRS"
-rotation_system[6]="SRS"
-rotation_system[7]="TNT"
+rotation_system[0]="ORS"   # Original
+rotation_system[1]="NRSR"  # Nintendo RH
+rotation_system[2]="NRSL"  # Nintendo LH
+rotation_system[3]="SEGA"  # Sega
+rotation_system[4]="ARS"   # Arika
+rotation_system[5]="DRS"   # DTET
+rotation_system[6]="SRS"   # Super
+rotation_system[7]="TNT"   # The New Tetris
 
 # rotation_system[tetrimino]=x_offset,y_offset x4
 
